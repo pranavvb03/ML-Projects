@@ -1,88 +1,106 @@
-import cv2
-import numpy as np
 import streamlit as st
+import cv2
 from PIL import Image
+import numpy as np
 
-def load_image(image_file):
-    img = Image.open(image_file)
-    return img
+# Load reference templates for comparison
+gandhi_template = cv2.imread('gandhi_watermark_template.jpg', 0)
+ashoka_pillar_template = cv2.imread('ashoka_pillar_template.jpg', 0)
 
-def feature_matching(image1, image2):
-    # Convert images to grayscale
-    gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
-    gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
+# Functions for detecting security features (as defined earlier)
+# Load the reference images (templates for Gandhi's watermark, security thread, etc.)
 
-    # Initiate ORB detector
-    orb = cv2.ORB_create()
+# Preprocess the input currency image
+def preprocess_image(image_path):
+    img = cv2.imread(image_path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY)
+    return img, gray, thresh
 
-    # Find the keypoints and descriptors with ORB
-    kp1, des1 = orb.detectAndCompute(gray1, None)
-    kp2, des2 = orb.detectAndCompute(gray2, None)
-
-    # Create BFMatcher object
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-
-    # Match descriptors
-    matches = bf.match(des1, des2)
-
-    # Sort them in the order of their distance
-    matches = sorted(matches, key=lambda x: x.distance)
-
-    # Draw first 50 matches
-    result = cv2.drawMatches(image1, kp1, image2, kp2, matches[:50], None, flags=2)
-
-    return result, len(matches)
-
-def process_images(real_image_path, test_image_path):
-    # Read images
-    real_img = cv2.imread(real_image_path)
-    test_img = cv2.imread(test_image_path)
-
-    # Resize images to a fixed size
-    real_img = cv2.resize(real_img, (500, 300))
-    test_img = cv2.resize(test_img, (500, 300))
-
-    # Feature matching
-    result_img, match_count = feature_matching(real_img, test_img)
-
-    return result_img, match_count
-
-def detect_fake_currency(match_count, threshold=100):
-    if match_count > threshold:
-        return "The currency is REAL!"
-    else:
-        return "The currency is FAKE!"
-
-# Streamlit app code
-def main():
-    st.title("Fake Currency Detection System")
+# Feature 1: Detect Gandhi's Watermark using Template Matching
+def detect_gandhi_watermark(gray_image):
+    result = cv2.matchTemplate(gray_image, gandhi_template, cv2.TM_CCOEFF_NORMED)
+    (_, max_val, _, max_loc) = cv2.minMaxLoc(result)
     
-    st.write("Upload an image of the real currency and the test currency.")
+    # Set a threshold for matching (0.7 is usually a good threshold)
+    threshold = 0.7
+    if max_val > threshold:
+        # print("Gandhi Watermark detected")
+        return True
+    else:
+        # print("Gandhi Watermark not detected")
+        return False
 
-    # Uploading real and test currency images
-    real_image_file = st.file_uploader("Upload Real Currency", type=["jpg", "png", "jpeg"])
-    test_image_file = st.file_uploader("Upload Test Currency", type=["jpg", "png", "jpeg"])
+# Feature 2: Detect Ashoka Pillar using Template Matching
+def detect_ashoka_pillar(gray_image):
+    result = cv2.matchTemplate(gray_image, ashoka_pillar_template, cv2.TM_CCOEFF_NORMED)
+    (_, max_val, _, max_loc) = cv2.minMaxLoc(result)
+    
+    threshold = 0.7
+    if max_val > threshold:
+        # print("Ashoka Pillar detected")
+        return True
+    else:
+        # print("Ashoka Pillar not detected")
+        return False
 
-    if real_image_file is not None and test_image_file is not None:
-        real_img = load_image(real_image_file)
-        test_img = load_image(test_image_file)
+# Feature 3: Detect Bleed Lines using Edge Detection
+def detect_bleed_lines(gray_image):
+    edges = cv2.Canny(gray_image, 50, 150)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Convert PIL images to OpenCV format
-        real_img = np.array(real_img)
-        test_img = np.array(test_img)
+    # Set a threshold for number of bleed lines
+    min_bleed_lines = 7
+    detected_bleed_lines = 0
+    for contour in contours:
+        if cv2.arcLength(contour, True) > 100:  # Adjust based on the size of bleed lines
+            detected_bleed_lines += 1
+    
+    if detected_bleed_lines >= min_bleed_lines:
+        # print("Bleed Lines detected")
+        return True
+    else:
+        # print("Bleed Lines not detected")
+        return False
 
-        # Run currency detection
-        result_img, match_count = feature_matching(real_img, test_img)
+# Detect Security Features
+def detect_security_features(image_path):
+    img, gray, thresh = preprocess_image(image_path)
+    
+    # Run all the detection algorithms
+    gandhi_watermark = detect_gandhi_watermark(gray)
+    ashoka_pillar = detect_ashoka_pillar(gray)
+    bleed_lines = detect_bleed_lines(gray)
 
-        # Display the number of matches
-        st.write(f"Feature matches: {match_count}")
+    return gandhi_watermark, ashoka_pillar, bleed_lines
 
-        # Determine if the currency is fake or real
-        detection_result = detect_fake_currency(match_count)
-        st.subheader(detection_result)
+st.title("Fake Currency Detection for Indian Notes (500, 2000)")
 
-        # Display result image with matches
-        st.image(result_img, channels="BGR", use_column_width=True)
+st.write("Upload an image of the currency note below:")
 
-if __name__ == "__main__":
-    main()
+# File uploader for currency image
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    image_np = np.array(image)
+
+    # Preprocess the uploaded image and detect features
+    _, gray, _ = preprocess_image(image_np)
+    
+    st.image(image, caption='Uploaded Currency Note.', use_column_width=True)
+
+    # Detect security features
+    gandhi_watermark, ashoka_pillar, bleed_lines = detect_security_features(image_np)
+
+    # Display results
+    st.write("Results:")
+    st.write(f"Gandhi Watermark: {'Detected' if gandhi_watermark else 'Not Detected'}")
+    st.write(f"Ashoka Pillar: {'Detected' if ashoka_pillar else 'Not Detected'}")
+    st.write(f"Bleed Lines: {'Detected' if bleed_lines else 'Not Detected'}")
+
+    if gandhi_watermark and ashoka_pillar and bleed_lines:
+        st.success("This currency note seems genuine.")
+    else:
+        st.error("This currency note might be fake.")
