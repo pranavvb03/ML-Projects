@@ -3,104 +3,128 @@ import cv2
 from PIL import Image
 import numpy as np
 
-# Load reference templates for comparison
-gandhi_template = cv2.imread('gandhi_watermark_template.jpg', 0)
-ashoka_pillar_template = cv2.imread('ashoka_pillar_template.jpg', 0)
-
-# Functions for detecting security features (as defined earlier)
-# Load the reference images (templates for Gandhi's watermark, security thread, etc.)
-
-# Preprocess the input currency image
 def preprocess_image(image_path):
-    img = cv2.imread(image_path)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY)
-    return img, gray, thresh
+    # Read the image
+    image = cv2.imread(image_path)
 
-# Feature 1: Detect Gandhi's Watermark using Template Matching
-def detect_gandhi_watermark(gray_image):
-    result = cv2.matchTemplate(gray_image, gandhi_template, cv2.TM_CCOEFF_NORMED)
-    (_, max_val, _, max_loc) = cv2.minMaxLoc(result)
+    # Resize the image for consistency
+    image = cv2.resize(image, (700, 300))
+
+    # Convert to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
-    # Set a threshold for matching (0.7 is usually a good threshold)
+    # Apply adaptive thresholding to extract features
+    _, binary = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY)
+
+    return image, gray, binary
+
+# Function to detect bleed lines (these are found on the left of ₹500 and ₹2000 notes)
+def detect_bleed_lines(binary_image):
+    # Specify region of interest (ROI) for bleed lines
+    roi = binary_image[30:100, 30:100]  # This may change based on specific notes
+    lines = cv2.HoughLines(roi, 1, np.pi / 180, 200)
+
+    if lines is not None:
+        return True
+    return False
+
+# Function to detect Gandhi's watermark (template matching)
+def detect_gandhi_watermark(gray_image, template_path='gandhi_template.jpg'):
+    # Load the Gandhi watermark template
+    template = cv2.imread(template_path, 0)
+    w, h = template.shape[::-1]
+
+    # Template matching to detect the watermark
+    res = cv2.matchTemplate(gray_image, template, cv2.TM_CCOEFF_NORMED)
     threshold = 0.7
-    if max_val > threshold:
-        # print("Gandhi Watermark detected")
+    loc = np.where(res >= threshold)
+
+    if len(loc[0]) > 0:
         return True
-    else:
-        # print("Gandhi Watermark not detected")
-        return False
+    return False
 
-# Feature 2: Detect Ashoka Pillar using Template Matching
-def detect_ashoka_pillar(gray_image):
-    result = cv2.matchTemplate(gray_image, ashoka_pillar_template, cv2.TM_CCOEFF_NORMED)
-    (_, max_val, _, max_loc) = cv2.minMaxLoc(result)
-    
-    threshold = 0.7
-    if max_val > threshold:
-        # print("Ashoka Pillar detected")
+# Function to detect security thread
+def detect_security_thread(image):
+    # Convert to HSV to filter thread color
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    # Define range for detecting the thread's specific color (black/dark)
+    lower_color = np.array([0, 0, 0])
+    upper_color = np.array([180, 255, 30])
+
+    mask = cv2.inRange(hsv, lower_color, upper_color)
+    detected_thread = cv2.bitwise_and(image, image, mask=mask)
+
+    thread_count = cv2.countNonZero(mask)
+    if thread_count > 1000:  # Adjust based on specific note
         return True
-    else:
-        # print("Ashoka Pillar not detected")
-        return False
+    return False
 
-# Feature 3: Detect Bleed Lines using Edge Detection
-def detect_bleed_lines(gray_image):
-    edges = cv2.Canny(gray_image, 50, 150)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+# Function to detect and verify serial numbers using OCR (Tesseract)
+def detect_serial_number(image):
+    # Use Tesseract OCR to detect serial numbers
+    custom_config = r'--oem 3 --psm 6'
+    text = pytesseract.image_to_string(image, config=custom_config)
 
-    # Set a threshold for number of bleed lines
-    min_bleed_lines = 7
-    detected_bleed_lines = 0
-    for contour in contours:
-        if cv2.arcLength(contour, True) > 100:  # Adjust based on the size of bleed lines
-            detected_bleed_lines += 1
+    # Process the text to check for serial number pattern
+    serial_numbers = [line for line in text.split('\n') if line.isdigit()]
+    return serial_numbers if serial_numbers else False
+
+# Final currency detection function
+def detect_fake_currency(image_path):
+    image, gray_image, binary_image = preprocess_image(image_path)
+
+    # Detect bleed lines
+    bleed_lines_present = detect_bleed_lines(binary_image)
     
-    if detected_bleed_lines >= min_bleed_lines:
-        # print("Bleed Lines detected")
+    # Detect Gandhi watermark
+    gandhi_watermark_present = detect_gandhi_watermark(gray_image)
+    
+    # Detect security thread
+    security_thread_present = detect_security_thread(image)
+    
+    # Detect serial number
+    serial_numbers = detect_serial_number(image)
+
+    return {
+        "Bleed Lines Detected": bleed_lines_present,
+        "Gandhi Watermark Detected": gandhi_watermark_present,
+        "Security Thread Detected": security_thread_present,
+        "Serial Numbers Detected": serial_numbers
+    }
+    
+def is_currency_fake(detection_results):
+    if (not detection_results["Bleed Lines Detected"] or
+        not detection_results["Gandhi Watermark Detected"] or
+        not detection_results["Security Thread Detected"]):
         return True
-    else:
-        # print("Bleed Lines not detected")
-        return False
-
-# Detect Security Features
-def detect_security_features(image_path):
-    img, gray, thresh = preprocess_image(image_path)
+    return False
     
-    # Run all the detection algorithms
-    gandhi_watermark = detect_gandhi_watermark(gray)
-    ashoka_pillar = detect_ashoka_pillar(gray)
-    bleed_lines = detect_bleed_lines(gray)
+st.title("Indian Fake Currency Detection")
+st.write("Upload an image of a ₹500 or ₹2000 currency note.")
 
-    return gandhi_watermark, ashoka_pillar, bleed_lines
-
-st.title("Fake Currency Detection for Indian Notes (500, 2000)")
-
-st.write("Upload an image of the currency note below:")
-
-# File uploader for currency image
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Choose a file", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    image_np = np.array(image)
-
-    # Preprocess the uploaded image and detect features
-    _, gray, _ = preprocess_image(image_np)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
     
-    st.image(image, caption='Uploaded Currency Note.', use_column_width=True)
+    # Save the uploaded image
+    image_path = "uploaded_image.jpg"
+    image.save(image_path)
 
-    # Detect security features
-    gandhi_watermark, ashoka_pillar, bleed_lines = detect_security_features(image_np)
+    # Run the detection algorithm
+    detection_results = detect_fake_currency(image_path)
 
     # Display results
-    st.write("Results:")
-    st.write(f"Gandhi Watermark: {'Detected' if gandhi_watermark else 'Not Detected'}")
-    st.write(f"Ashoka Pillar: {'Detected' if ashoka_pillar else 'Not Detected'}")
-    st.write(f"Bleed Lines: {'Detected' if bleed_lines else 'Not Detected'}")
+    st.write("Detection Results:")
+    st.write(f"Bleed Lines Detected: {detection_results['Bleed Lines Detected']}")
+    st.write(f"Gandhi Watermark Detected: {detection_results['Gandhi Watermark Detected']}")
+    st.write(f"Security Thread Detected: {detection_results['Security Thread Detected']}")
+    st.write(f"Serial Numbers: {detection_results['Serial Numbers Detected']}")
 
-    if gandhi_watermark and ashoka_pillar and bleed_lines:
-        st.success("This currency note seems genuine.")
+    # Fake currency verdict
+    if is_currency_fake(detection_results):
+        st.error("Fake Currency Detected!")
     else:
-        st.error("This currency note might be fake.")
+        st.success("Currency is Genuine.")
