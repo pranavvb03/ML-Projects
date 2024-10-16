@@ -107,7 +107,7 @@ if uploaded_csv is not None:
                 if total > FILL_THRESHOLD:  # Consider the bubble as filled
                     bubbled.append(j)
 
-            color = (0, 0, 255)  # Default: Mark the answer as wrong
+            color = (255, 0, 0)  # Default: Mark the answer as wrong
 
             # Handle multiple bubbles filled
             if len(bubbled) == 1:
@@ -120,7 +120,7 @@ if uploaded_csv is not None:
             # Multiple bubbles or unfilled
             elif len(bubbled) > 1 or len(bubbled) == 0:
                 for idx in bubbled:
-                    cv2.drawContours(paper, [cnts[idx]], -1, (0, 0, 255), 3)
+                    cv2.drawContours(paper, [cnts[idx]], -1, (255, 0, 0), 3)
 
             for idx in bubbled:
                 cv2.drawContours(paper, [cnts[idx]], -1, color, 3)
