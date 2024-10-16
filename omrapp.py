@@ -92,8 +92,8 @@ if uploaded_csv is not None:
         # Threshold for considering a bubble as filled
         FILL_THRESHOLD = 500
 
-        for (q, i) in enumerate(np.arange(0, len(questionCnts), 4)):  # 4 options for each question
-            cnts = contours.sort_contours(questionCnts[i:i + 4])[0]
+        for (q, i) in enumerate(np.arange(0, len(questionCnts), 5)):  # 4 options for each question
+            cnts = contours.sort_contours(questionCnts[i:i + 5])[0]
             bubbled = []
 
             # Loop through each bubble in the question
